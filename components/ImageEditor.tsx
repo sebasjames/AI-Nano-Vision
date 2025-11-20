@@ -11,13 +11,22 @@ export const ImageEditor: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   
+  // Comparison View State
+  const [viewMode, setViewMode] = useState<'split' | 'slider'>('split');
+  const [sliderPosition, setSliderPosition] = useState(50);
+  const [isDragging, setIsDragging] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sliderContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     
     if (loadingState === LoadingState.GENERATING) {
       setProgress(0);
+      // Force split view during generation
+      setViewMode('split');
+      
       // Simulate progress up to 90%
       interval = setInterval(() => {
         setProgress((prev) => {
@@ -33,6 +42,42 @@ export const ImageEditor: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [loadingState]);
+
+  // Handle Global Mouse Events for Slider
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        e.preventDefault();
+        handleDrag(e.clientX);
+      }
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleDrag = (clientX: number) => {
+    if (sliderContainerRef.current) {
+      const rect = sliderContainerRef.current.getBoundingClientRect();
+      const x = clientX - rect.left;
+      // Calculate percentage 0-100
+      const percentage = Math.min(Math.max((x / rect.width) * 100, 0), 100);
+      setSliderPosition(percentage);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    handleDrag(e.touches[0].clientX);
+  };
 
   const getLoadingMessage = (p: number) => {
     if (p < 25) return "Analyzing image...";
@@ -65,6 +110,7 @@ export const ImageEditor: React.FC = () => {
         });
         setGeneratedImage(null); // Reset previous generation
         setLoadingState(LoadingState.IDLE);
+        setViewMode('split'); // Reset to split view
       } catch (err) {
         setError('Failed to process image.');
         setLoadingState(LoadingState.ERROR);
@@ -99,6 +145,7 @@ export const ImageEditor: React.FC = () => {
     setError(null);
     setLoadingState(LoadingState.IDLE);
     setProgress(0);
+    setViewMode('split');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -145,43 +192,73 @@ export const ImageEditor: React.FC = () => {
 
   // Render Editor
   return (
-    <div className="w-full max-w-6xl mx-auto flex flex-col gap-10">
+    <div className="w-full max-w-6xl mx-auto flex flex-col gap-8">
       
-      {/* Prompt Bar */}
-      <div className="sticky top-24 z-40 bg-white/90 backdrop-blur-xl p-2 rounded-full border border-gray-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col sm:flex-row gap-2 items-center transition-all max-w-3xl mx-auto w-full">
-        <div className="relative flex-grow w-full">
-          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-            <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+      {/* Prompt Bar & Controls */}
+      <div className="sticky top-24 z-40 flex flex-col gap-4 max-w-3xl mx-auto w-full">
+        <div className="bg-white/90 backdrop-blur-xl p-2 rounded-full border border-gray-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col sm:flex-row gap-2 items-center transition-all">
+          <div className="relative flex-grow w-full">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Ask to edit... (e.g., 'Add a vintage filter')"
+              className="block w-full pl-12 pr-4 py-3 rounded-full leading-5 bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none sm:text-base transition-colors"
+              onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+            />
           </div>
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Ask to edit... (e.g., 'Add a vintage filter')"
-            className="block w-full pl-12 pr-4 py-3 rounded-full leading-5 bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none sm:text-base transition-colors"
-            onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
-          />
+          <div className="flex gap-2 w-full sm:w-auto pr-1">
+            <Button 
+              onClick={handleGenerate} 
+              disabled={!prompt.trim() || loadingState === LoadingState.GENERATING}
+              isLoading={loadingState === LoadingState.GENERATING}
+              className="flex-1 sm:flex-none w-full sm:w-auto"
+            >
+              Generate
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={handleReset}
+              className="w-10 h-10 p-0 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50"
+              title="Start Over"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto pr-1">
-          <Button 
-            onClick={handleGenerate} 
-            disabled={!prompt.trim() || loadingState === LoadingState.GENERATING}
-            isLoading={loadingState === LoadingState.GENERATING}
-            className="flex-1 sm:flex-none w-full sm:w-auto"
-          >
-            Generate
-          </Button>
-          <Button 
-            variant="ghost" 
-            onClick={handleReset}
-            className="w-10 h-10 p-0 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50"
-            title="Start Over"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-          </Button>
-        </div>
+        
+        {/* View Mode Toggle - Only show if we have a result */}
+        {generatedImage && loadingState === LoadingState.SUCCESS && (
+           <div className="flex justify-center">
+             <div className="bg-gray-100/80 backdrop-blur-sm p-1 rounded-xl flex items-center shadow-inner">
+                <button
+                  onClick={() => setViewMode('split')}
+                  className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
+                    viewMode === 'split' 
+                      ? 'bg-white shadow-sm text-gray-900' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Split View
+                </button>
+                <button
+                  onClick={() => setViewMode('slider')}
+                  className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
+                    viewMode === 'slider' 
+                      ? 'bg-white shadow-sm text-gray-900' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Slider Compare
+                </button>
+             </div>
+           </div>
+        )}
       </div>
 
       {/* Error Message */}
@@ -193,70 +270,133 @@ export const ImageEditor: React.FC = () => {
       )}
 
       {/* Canvas Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 min-h-[500px]">
-        
-        {/* Original Image Card */}
-        <div className="group bg-white rounded-3xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col h-full hover:shadow-[0_20px_40px_rgb(0,0,0,0.06)] transition-shadow duration-500">
-          <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
-            <span className="text-xs font-semibold tracking-wider uppercase text-gray-400">Original</span>
-          </div>
-          <div className="flex-grow relative bg-gray-50/50 flex items-center justify-center p-8">
-            <img 
-              src={originalImage.previewUrl || ''} 
-              alt="Original" 
-              className="max-w-full max-h-[600px] w-auto h-auto rounded-lg shadow-sm object-contain"
-            />
-          </div>
-        </div>
-
-        {/* Generated Image Card */}
-        <div className={`group bg-white rounded-3xl border ${generatedImage ? 'border-blue-100 shadow-blue-100/50' : 'border-gray-100'} shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col h-full relative transition-all duration-500 hover:shadow-[0_20px_40px_rgb(0,0,0,0.06)]`}>
-          <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
-            <span className={`text-xs font-semibold tracking-wider uppercase ${loadingState === LoadingState.GENERATING ? 'text-black' : 'text-gray-400'}`}>
-              {loadingState === LoadingState.GENERATING ? 'Generating...' : 'Result'}
-            </span>
-            {generatedImage && (
-              <Button variant="secondary" size="sm" onClick={handleDownload} className="h-8 px-3 text-xs bg-gray-50 border-gray-200 hover:bg-gray-100">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                Save
-              </Button>
-            )}
-          </div>
-          <div className="flex-grow relative bg-gray-50/50 flex items-center justify-center p-8">
-            {loadingState === LoadingState.GENERATING ? (
-               <div className="flex flex-col items-center justify-center w-full max-w-xs">
-                 <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mb-4 relative">
-                    <div 
-                      className="absolute top-0 left-0 h-full bg-black rounded-full transition-all duration-300 ease-out"
-                      style={{ width: `${progress}%` }}
-                    ></div>
-                 </div>
-                 
-                 <div className="flex flex-col items-center text-gray-500 gap-2">
-                    <p className="text-sm font-medium animate-pulse text-black transition-all duration-500 text-center">
-                      {getLoadingMessage(progress)}
-                    </p>
-                    <p className="text-xs text-gray-400">{Math.round(progress)}%</p>
-                 </div>
-              </div>
-            ) : generatedImage ? (
-               <img 
-                src={generatedImage} 
-                alt="Generated" 
-                className="max-w-full max-h-[600px] w-auto h-auto rounded-lg shadow-lg object-contain animate-in fade-in duration-700"
+      {viewMode === 'split' ? (
+        // SPLIT VIEW MODE (Default)
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 min-h-[500px]">
+          
+          {/* Original Image Card */}
+          <div className="group bg-white rounded-3xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col h-full hover:shadow-[0_20px_40px_rgb(0,0,0,0.06)] transition-shadow duration-500">
+            <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
+              <span className="text-xs font-semibold tracking-wider uppercase text-gray-400">Original</span>
+            </div>
+            <div className="flex-grow relative bg-gray-50/50 flex items-center justify-center p-8">
+              <img 
+                src={originalImage.previewUrl || ''} 
+                alt="Original" 
+                className="max-w-full max-h-[600px] w-auto h-auto rounded-lg shadow-sm object-contain"
               />
-            ) : (
-              <div className="text-gray-300 flex flex-col items-center">
-                <div className="w-16 h-16 rounded-2xl bg-white border border-gray-100 flex items-center justify-center shadow-sm mb-4">
-                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                </div>
-                <p className="text-sm font-medium text-gray-400">Your masterpiece will appear here</p>
-              </div>
-            )}
+            </div>
           </div>
-        </div>
 
-      </div>
+          {/* Generated Image Card */}
+          <div className={`group bg-white rounded-3xl border ${generatedImage ? 'border-blue-100 shadow-blue-100/50' : 'border-gray-100'} shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col h-full relative transition-all duration-500 hover:shadow-[0_20px_40px_rgb(0,0,0,0.06)]`}>
+            <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
+              <span className={`text-xs font-semibold tracking-wider uppercase ${loadingState === LoadingState.GENERATING ? 'text-black' : 'text-gray-400'}`}>
+                {loadingState === LoadingState.GENERATING ? 'Generating...' : 'Result'}
+              </span>
+              {generatedImage && (
+                <Button variant="secondary" size="sm" onClick={handleDownload} className="h-8 px-3 text-xs bg-gray-50 border-gray-200 hover:bg-gray-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                  Save
+                </Button>
+              )}
+            </div>
+            <div className="flex-grow relative bg-gray-50/50 flex items-center justify-center p-8">
+              {loadingState === LoadingState.GENERATING ? (
+                 <div className="flex flex-col items-center justify-center w-full max-w-xs">
+                   <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mb-4 relative">
+                      <div 
+                        className="absolute top-0 left-0 h-full bg-black rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                   </div>
+                   
+                   <div className="flex flex-col items-center text-gray-500 gap-2">
+                      <p className="text-sm font-medium animate-pulse text-black transition-all duration-500 text-center">
+                        {getLoadingMessage(progress)}
+                      </p>
+                      <p className="text-xs text-gray-400">{Math.round(progress)}%</p>
+                   </div>
+                </div>
+              ) : generatedImage ? (
+                 <img 
+                  src={generatedImage} 
+                  alt="Generated" 
+                  className="max-w-full max-h-[600px] w-auto h-auto rounded-lg shadow-lg object-contain animate-in fade-in duration-700"
+                />
+              ) : (
+                <div className="text-gray-300 flex flex-col items-center">
+                  <div className="w-16 h-16 rounded-2xl bg-white border border-gray-100 flex items-center justify-center shadow-sm mb-4">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                  </div>
+                  <p className="text-sm font-medium text-gray-400">Your masterpiece will appear here</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      ) : (
+        // SLIDER COMPARISON MODE
+        <div className="w-full max-w-4xl mx-auto">
+           <div className="bg-white rounded-3xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col">
+             <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white z-10 relative">
+               <div className="flex gap-4">
+                  <span className="text-xs font-semibold tracking-wider uppercase text-gray-400">Compare</span>
+               </div>
+               {generatedImage && (
+                <Button variant="secondary" size="sm" onClick={handleDownload} className="h-8 px-3 text-xs bg-gray-50 border-gray-200 hover:bg-gray-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                  Save
+                </Button>
+              )}
+             </div>
+             
+             <div 
+               className="relative w-full h-[600px] bg-gray-50/50 select-none overflow-hidden cursor-col-resize group"
+               ref={sliderContainerRef}
+               onMouseDown={() => setIsDragging(true)}
+               onTouchStart={() => setIsDragging(true)}
+               onTouchMove={handleTouchMove}
+               onTouchEnd={() => setIsDragging(false)}
+             >
+               {/* Base Image (Original) */}
+               <img 
+                  src={originalImage.previewUrl || ''} 
+                  alt="Original" 
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none p-8"
+               />
+               
+               {/* Overlay Image (Generated) - Clipped */}
+               <div 
+                 className="absolute inset-0 w-full h-full overflow-hidden"
+                 style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
+               >
+                  <img 
+                    src={generatedImage || ''} 
+                    alt="Generated" 
+                    className="absolute inset-0 w-full h-full object-contain pointer-events-none p-8"
+                  />
+               </div>
+
+               {/* Slider Handle */}
+               <div 
+                 className="absolute inset-y-0 w-0.5 bg-white shadow-[0_0_10px_rgba(0,0,0,0.2)] pointer-events-none"
+                 style={{ left: `${sliderPosition}%` }}
+               >
+                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center text-gray-400 group-hover:scale-110 transition-transform">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/><polyline points="19 18 13 12 19 6"/></svg>
+                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="rotate-180 absolute"><polyline points="15 18 9 12 15 6"/><polyline points="19 18 13 12 19 6"/></svg>
+                 </div>
+               </div>
+               
+               {/* Labels overlay */}
+               <div className="absolute bottom-6 left-6 bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded pointer-events-none">ORIGINAL</div>
+               <div className="absolute bottom-6 right-6 bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded pointer-events-none">EDITED</div>
+             </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };
