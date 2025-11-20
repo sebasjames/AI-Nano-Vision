@@ -9,8 +9,38 @@ export const ImageEditor: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [loadingState, setLoadingState] = useState<LoadingState>(LoadingState.IDLE);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    
+    if (loadingState === LoadingState.GENERATING) {
+      setProgress(0);
+      // Simulate progress up to 90%
+      interval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev >= 90) return prev;
+          // Slow down as we get closer to 90
+          const increment = Math.max(0.5, (90 - prev) / 20);
+          return prev + increment;
+        });
+      }, 100);
+    } else if (loadingState === LoadingState.SUCCESS) {
+      setProgress(100);
+    }
+
+    return () => clearInterval(interval);
+  }, [loadingState]);
+
+  const getLoadingMessage = (p: number) => {
+    if (p < 25) return "Analyzing image...";
+    if (p < 50) return "Understanding your request...";
+    if (p < 75) return "Applying AI edits...";
+    if (p < 90) return "Enhancing details...";
+    return "Final touches...";
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -68,6 +98,7 @@ export const ImageEditor: React.FC = () => {
     setPrompt('');
     setError(null);
     setLoadingState(LoadingState.IDLE);
+    setProgress(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -181,8 +212,8 @@ export const ImageEditor: React.FC = () => {
         {/* Generated Image Card */}
         <div className={`group bg-white rounded-3xl border ${generatedImage ? 'border-blue-100 shadow-blue-100/50' : 'border-gray-100'} shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col h-full relative transition-all duration-500 hover:shadow-[0_20px_40px_rgb(0,0,0,0.06)]`}>
           <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-white">
-            <span className={`text-xs font-semibold tracking-wider uppercase ${loadingState === LoadingState.GENERATING ? 'text-blue-500 animate-pulse' : 'text-gray-400'}`}>
-              {loadingState === LoadingState.GENERATING ? 'Processing...' : 'Result'}
+            <span className={`text-xs font-semibold tracking-wider uppercase ${loadingState === LoadingState.GENERATING ? 'text-black' : 'text-gray-400'}`}>
+              {loadingState === LoadingState.GENERATING ? 'Generating...' : 'Result'}
             </span>
             {generatedImage && (
               <Button variant="secondary" size="sm" onClick={handleDownload} className="h-8 px-3 text-xs bg-gray-50 border-gray-200 hover:bg-gray-100">
@@ -193,12 +224,20 @@ export const ImageEditor: React.FC = () => {
           </div>
           <div className="flex-grow relative bg-gray-50/50 flex items-center justify-center p-8">
             {loadingState === LoadingState.GENERATING ? (
-              <div className="flex flex-col items-center">
-                 <div className="relative w-12 h-12">
-                    <div className="absolute top-0 left-0 w-full h-full border-4 border-gray-200 rounded-full"></div>
-                    <div className="absolute top-0 left-0 w-full h-full border-4 border-black rounded-full animate-spin border-t-transparent"></div>
+               <div className="flex flex-col items-center justify-center w-full max-w-xs">
+                 <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mb-4 relative">
+                    <div 
+                      className="absolute top-0 left-0 h-full bg-black rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${progress}%` }}
+                    ></div>
                  </div>
-                 <p className="mt-6 text-gray-500 text-sm font-medium animate-pulse">Creating your vision...</p>
+                 
+                 <div className="flex flex-col items-center text-gray-500 gap-2">
+                    <p className="text-sm font-medium animate-pulse text-black transition-all duration-500 text-center">
+                      {getLoadingMessage(progress)}
+                    </p>
+                    <p className="text-xs text-gray-400">{Math.round(progress)}%</p>
+                 </div>
               </div>
             ) : generatedImage ? (
                <img 
