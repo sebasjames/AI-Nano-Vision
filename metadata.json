@@ -1,0 +1,5 @@
+{
+  "name": "NanoVision AI Editor",
+  "description": "The world's most advanced image creation tool powered by Gemini 2.5 Flash Image (Nano Banana). Upload images and edit them with natural language prompts.",
+  "requestFramePermissions": []
+}
